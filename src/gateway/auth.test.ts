@@ -374,3 +374,154 @@ describe("trusted-proxy auth", () => {
     expect(res.user).toBe("nick@example.com");
   });
 });
+
+describe("cloudflare-access auth", () => {
+  type GatewayConnectInput = Parameters<typeof authorizeGatewayConnect>[0];
+
+  const cfAccessConfig = {
+    teamDomain: "myteam",
+    audience: "test-aud-123",
+    allowUsers: [] as string[],
+  };
+
+  const mockVerifySuccess: GatewayConnectInput["cloudflareAccessVerify"] = async () => ({
+    email: "nick@example.com",
+    name: "Nick",
+  });
+
+  const mockVerifyFail: GatewayConnectInput["cloudflareAccessVerify"] = async () => null;
+
+  function authorizeCfAccess(options?: {
+    auth?: GatewayConnectInput["auth"];
+    headers?: Record<string, string>;
+    cloudflareAccessVerify?: GatewayConnectInput["cloudflareAccessVerify"];
+  }) {
+    return authorizeGatewayConnect({
+      auth: options?.auth ?? {
+        mode: "cloudflare-access",
+        allowTailscale: false,
+        cloudflareAccess: cfAccessConfig,
+      },
+      connectAuth: null,
+      cloudflareAccessVerify: options?.cloudflareAccessVerify ?? mockVerifySuccess,
+      req: {
+        socket: { remoteAddress: "10.0.0.1" },
+        headers: {
+          host: "gateway.example.com",
+          ...options?.headers,
+        },
+      } as never,
+    });
+  }
+
+  it("accepts valid Cloudflare Access JWT", async () => {
+    const res = await authorizeCfAccess({
+      headers: {
+        "cf-access-jwt-assertion": "valid.jwt.token",
+      },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.method).toBe("cloudflare-access");
+    expect(res.user).toBe("nick@example.com");
+  });
+
+  it("rejects when JWT header is missing", async () => {
+    const res = await authorizeCfAccess({
+      headers: {},
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("cf_access_jwt_missing");
+  });
+
+  it("rejects when JWT verification fails", async () => {
+    const res = await authorizeCfAccess({
+      headers: {
+        "cf-access-jwt-assertion": "invalid.jwt.token",
+      },
+      cloudflareAccessVerify: mockVerifyFail,
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("cf_access_jwt_invalid");
+  });
+
+  it("rejects user not in allowlist", async () => {
+    const res = await authorizeCfAccess({
+      auth: {
+        mode: "cloudflare-access",
+        allowTailscale: false,
+        cloudflareAccess: {
+          teamDomain: "myteam",
+          audience: "test-aud-123",
+          allowUsers: ["admin@example.com"],
+        },
+      },
+      headers: {
+        "cf-access-jwt-assertion": "valid.jwt.token",
+      },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("cf_access_user_not_allowed");
+  });
+
+  it("accepts user in allowlist", async () => {
+    const res = await authorizeCfAccess({
+      auth: {
+        mode: "cloudflare-access",
+        allowTailscale: false,
+        cloudflareAccess: {
+          teamDomain: "myteam",
+          audience: "test-aud-123",
+          allowUsers: ["admin@example.com", "nick@example.com"],
+        },
+      },
+      headers: {
+        "cf-access-jwt-assertion": "valid.jwt.token",
+      },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.method).toBe("cloudflare-access");
+    expect(res.user).toBe("nick@example.com");
+  });
+
+  it("allows all users when allowUsers is empty", async () => {
+    const res = await authorizeCfAccess({
+      headers: {
+        "cf-access-jwt-assertion": "valid.jwt.token",
+      },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.user).toBe("nick@example.com");
+  });
+
+  it("rejects when cloudflareAccess config is missing", async () => {
+    const res = await authorizeCfAccess({
+      auth: {
+        mode: "cloudflare-access",
+        allowTailscale: false,
+      },
+      headers: {
+        "cf-access-jwt-assertion": "valid.jwt.token",
+      },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("cf_access_config_missing");
+  });
+
+  it("rejects empty JWT header value", async () => {
+    const res = await authorizeCfAccess({
+      headers: {
+        "cf-access-jwt-assertion": "   ",
+      },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("cf_access_jwt_missing");
+  });
+});

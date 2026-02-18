@@ -76,7 +76,7 @@ export type GatewayControlUiConfig = {
   dangerouslyDisableDeviceAuth?: boolean;
 };
 
-export type GatewayAuthMode = "token" | "password" | "trusted-proxy";
+export type GatewayAuthMode = "token" | "password" | "trusted-proxy" | "cloudflare-access";
 
 /**
  * Configuration for trusted reverse proxy authentication.
@@ -103,6 +103,31 @@ export type GatewayTrustedProxyConfig = {
   allowUsers?: string[];
 };
 
+/**
+ * Configuration for Cloudflare Access (Zero Trust) authentication.
+ * Used when OpenClaw runs behind a Cloudflare Access tunnel that
+ * authenticates users and passes a signed JWT in the
+ * `Cf-Access-Jwt-Assertion` header.
+ */
+export type GatewayCloudflareAccessConfig = {
+  /**
+   * Cloudflare Access team domain (the part before `.cloudflareaccess.com`).
+   * Example: "myteam" for `myteam.cloudflareaccess.com`
+   */
+  teamDomain: string;
+  /**
+   * Application Audience (AUD) tag from the Cloudflare Access dashboard.
+   * Found under Application > Overview > Application Audience (AUD) Tag.
+   */
+  audience: string;
+  /**
+   * Optional allowlist of user emails that can access the gateway.
+   * If empty or omitted, all authenticated users from Cloudflare Access are allowed.
+   * Example: ["nick@example.com", "admin@company.org"]
+   */
+  allowUsers?: string[];
+};
+
 export type GatewayAuthConfig = {
   /** Authentication mode for Gateway connections. Defaults to token when set. */
   mode?: GatewayAuthMode;
@@ -119,6 +144,11 @@ export type GatewayAuthConfig = {
    * Required when mode is "trusted-proxy".
    */
   trustedProxy?: GatewayTrustedProxyConfig;
+  /**
+   * Configuration for cloudflare-access auth mode.
+   * Required when mode is "cloudflare-access".
+   */
+  cloudflareAccess?: GatewayCloudflareAccessConfig;
 };
 
 export type GatewayAuthRateLimitConfig = {

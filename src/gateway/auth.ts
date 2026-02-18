@@ -1,9 +1,15 @@
 import type { IncomingMessage } from "node:http";
 import type {
   GatewayAuthConfig,
+  GatewayCloudflareAccessConfig,
   GatewayTailscaleMode,
   GatewayTrustedProxyConfig,
 } from "../config/config.js";
+import {
+  verifyCloudflareAccessJwt,
+  type CloudflareAccessIdentity,
+  type CloudflareAccessVerifyConfig,
+} from "../infra/cloudflare-access.js";
 import { readTailscaleWhoisIdentity, type TailscaleWhoisIdentity } from "../infra/tailscale.js";
 import { safeEqualSecret } from "../security/secret-equal.js";
 import {
@@ -19,7 +25,12 @@ import {
   resolveGatewayClientIp,
 } from "./net.js";
 
-export type ResolvedGatewayAuthMode = "none" | "token" | "password" | "trusted-proxy";
+export type ResolvedGatewayAuthMode =
+  | "none"
+  | "token"
+  | "password"
+  | "trusted-proxy"
+  | "cloudflare-access";
 
 export type ResolvedGatewayAuth = {
   mode: ResolvedGatewayAuthMode;
@@ -27,11 +38,19 @@ export type ResolvedGatewayAuth = {
   password?: string;
   allowTailscale: boolean;
   trustedProxy?: GatewayTrustedProxyConfig;
+  cloudflareAccess?: GatewayCloudflareAccessConfig;
 };
 
 export type GatewayAuthResult = {
   ok: boolean;
-  method?: "none" | "token" | "password" | "tailscale" | "device-token" | "trusted-proxy";
+  method?:
+    | "none"
+    | "token"
+    | "password"
+    | "tailscale"
+    | "device-token"
+    | "trusted-proxy"
+    | "cloudflare-access";
   user?: string;
   reason?: string;
   /** Present when the request was blocked by the rate limiter. */
@@ -52,6 +71,11 @@ type TailscaleUser = {
 };
 
 type TailscaleWhoisLookup = (ip: string) => Promise<TailscaleWhoisIdentity | null>;
+
+type CloudflareAccessJwtVerifier = (
+  token: string,
+  config: CloudflareAccessVerifyConfig,
+) => Promise<CloudflareAccessIdentity | null>;
 
 function normalizeLogin(login: string): string {
   return login.trim().toLowerCase();
@@ -186,6 +210,7 @@ export function resolveGatewayAuth(params: {
   const token = authConfig.token ?? env.OPENCLAW_GATEWAY_TOKEN ?? undefined;
   const password = authConfig.password ?? env.OPENCLAW_GATEWAY_PASSWORD ?? undefined;
   const trustedProxy = authConfig.trustedProxy;
+  const cloudflareAccess = authConfig.cloudflareAccess;
 
   let mode: ResolvedGatewayAuth["mode"];
   if (authConfig.mode) {
@@ -200,7 +225,10 @@ export function resolveGatewayAuth(params: {
 
   const allowTailscale =
     authConfig.allowTailscale ??
-    (params.tailscaleMode === "serve" && mode !== "password" && mode !== "trusted-proxy");
+    (params.tailscaleMode === "serve" &&
+      mode !== "password" &&
+      mode !== "trusted-proxy" &&
+      mode !== "cloudflare-access");
 
   return {
     mode,
@@ -208,6 +236,7 @@ export function resolveGatewayAuth(params: {
     password,
     allowTailscale,
     trustedProxy,
+    cloudflareAccess,
   };
 }
 
@@ -232,6 +261,23 @@ export function assertGatewayAuthConfigured(auth: ResolvedGatewayAuth): void {
     if (!auth.trustedProxy.userHeader || auth.trustedProxy.userHeader.trim() === "") {
       throw new Error(
         "gateway auth mode is trusted-proxy, but trustedProxy.userHeader is empty (set gateway.auth.trustedProxy.userHeader)",
+      );
+    }
+  }
+  if (auth.mode === "cloudflare-access") {
+    if (!auth.cloudflareAccess) {
+      throw new Error(
+        "gateway auth mode is cloudflare-access, but no cloudflareAccess config was provided (set gateway.auth.cloudflareAccess)",
+      );
+    }
+    if (!auth.cloudflareAccess.teamDomain || auth.cloudflareAccess.teamDomain.trim() === "") {
+      throw new Error(
+        "gateway auth mode is cloudflare-access, but cloudflareAccess.teamDomain is empty (set gateway.auth.cloudflareAccess.teamDomain)",
+      );
+    }
+    if (!auth.cloudflareAccess.audience || auth.cloudflareAccess.audience.trim() === "") {
+      throw new Error(
+        "gateway auth mode is cloudflare-access, but cloudflareAccess.audience is empty (set gateway.auth.cloudflareAccess.audience)",
       );
     }
   }
@@ -286,6 +332,8 @@ export async function authorizeGatewayConnect(params: {
   req?: IncomingMessage;
   trustedProxies?: string[];
   tailscaleWhois?: TailscaleWhoisLookup;
+  /** Override Cloudflare Access JWT verifier for testing. */
+  cloudflareAccessVerify?: CloudflareAccessJwtVerifier;
   /** Optional rate limiter instance; when provided, failed attempts are tracked per IP. */
   rateLimiter?: AuthRateLimiter;
   /** Client IP used for rate-limit tracking. Falls back to proxy-aware request IP resolution. */
@@ -315,6 +363,34 @@ export async function authorizeGatewayConnect(params: {
       return { ok: true, method: "trusted-proxy", user: result.user };
     }
     return { ok: false, reason: result.reason };
+  }
+
+  if (auth.mode === "cloudflare-access") {
+    if (!auth.cloudflareAccess) {
+      return { ok: false, reason: "cf_access_config_missing" };
+    }
+
+    const jwtToken = headerValue(req?.headers?.["cf-access-jwt-assertion"]);
+    if (!jwtToken || jwtToken.trim() === "") {
+      return { ok: false, reason: "cf_access_jwt_missing" };
+    }
+
+    const verify = params.cloudflareAccessVerify ?? verifyCloudflareAccessJwt;
+    const identity = await verify(jwtToken, {
+      teamDomain: auth.cloudflareAccess.teamDomain,
+      audience: auth.cloudflareAccess.audience,
+    });
+
+    if (!identity) {
+      return { ok: false, reason: "cf_access_jwt_invalid" };
+    }
+
+    const allowUsers = auth.cloudflareAccess.allowUsers ?? [];
+    if (allowUsers.length > 0 && !allowUsers.includes(identity.email)) {
+      return { ok: false, reason: "cf_access_user_not_allowed" };
+    }
+
+    return { ok: true, method: "cloudflare-access", user: identity.email };
   }
 
   const limiter = params.rateLimiter;

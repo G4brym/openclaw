@@ -264,4 +264,5 @@ If you're moving from token auth to trusted-proxy:
 - [Security](/gateway/security) — full security guide
 - [Configuration](/gateway/configuration) — config reference
 - [Remote Access](/gateway/remote) — other remote access patterns
+- [Cloudflare Access](/gateway/cloudflare-access) — Cloudflare Zero Trust JWT authentication
 - [Tailscale](/gateway/tailscale) — simpler alternative for tailnet-only access
