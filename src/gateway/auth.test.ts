@@ -57,7 +57,7 @@ describe("gateway auth", () => {
 
   it("does not throw when req is missing socket", async () => {
     const res = await authorizeGatewayConnect({
-      auth: { mode: "token", token: "secret", allowTailscale: false },
+      auth: { mode: "token", token: "secret", allowTailscale: false, allowCloudflareAccess: false },
       connectAuth: { token: "secret" },
       // Regression: avoid crashing on req.socket.remoteAddress when callers pass a non-IncomingMessage.
       req: {} as never,
@@ -67,14 +67,14 @@ describe("gateway auth", () => {
 
   it("reports missing and mismatched token reasons", async () => {
     const missing = await authorizeGatewayConnect({
-      auth: { mode: "token", token: "secret", allowTailscale: false },
+      auth: { mode: "token", token: "secret", allowTailscale: false, allowCloudflareAccess: false },
       connectAuth: null,
     });
     expect(missing.ok).toBe(false);
     expect(missing.reason).toBe("token_missing");
 
     const mismatch = await authorizeGatewayConnect({
-      auth: { mode: "token", token: "secret", allowTailscale: false },
+      auth: { mode: "token", token: "secret", allowTailscale: false, allowCloudflareAccess: false },
       connectAuth: { token: "wrong" },
     });
     expect(mismatch.ok).toBe(false);
@@ -83,7 +83,7 @@ describe("gateway auth", () => {
 
   it("reports missing token config reason", async () => {
     const res = await authorizeGatewayConnect({
-      auth: { mode: "token", allowTailscale: false },
+      auth: { mode: "token", allowTailscale: false, allowCloudflareAccess: false },
       connectAuth: { token: "anything" },
     });
     expect(res.ok).toBe(false);
@@ -92,14 +92,24 @@ describe("gateway auth", () => {
 
   it("reports missing and mismatched password reasons", async () => {
     const missing = await authorizeGatewayConnect({
-      auth: { mode: "password", password: "secret", allowTailscale: false },
+      auth: {
+        mode: "password",
+        password: "secret",
+        allowTailscale: false,
+        allowCloudflareAccess: false,
+      },
       connectAuth: null,
     });
     expect(missing.ok).toBe(false);
     expect(missing.reason).toBe("password_missing");
 
     const mismatch = await authorizeGatewayConnect({
-      auth: { mode: "password", password: "secret", allowTailscale: false },
+      auth: {
+        mode: "password",
+        password: "secret",
+        allowTailscale: false,
+        allowCloudflareAccess: false,
+      },
       connectAuth: { password: "wrong" },
     });
     expect(mismatch.ok).toBe(false);
@@ -108,7 +118,7 @@ describe("gateway auth", () => {
 
   it("reports missing password config reason", async () => {
     const res = await authorizeGatewayConnect({
-      auth: { mode: "password", allowTailscale: false },
+      auth: { mode: "password", allowTailscale: false, allowCloudflareAccess: false },
       connectAuth: { password: "secret" },
     });
     expect(res.ok).toBe(false);
@@ -117,7 +127,7 @@ describe("gateway auth", () => {
 
   it("treats local tailscale serve hostnames as direct", async () => {
     const res = await authorizeGatewayConnect({
-      auth: { mode: "token", token: "secret", allowTailscale: true },
+      auth: { mode: "token", token: "secret", allowTailscale: true, allowCloudflareAccess: false },
       connectAuth: { token: "secret" },
       req: {
         socket: { remoteAddress: "127.0.0.1" },
@@ -131,7 +141,7 @@ describe("gateway auth", () => {
 
   it("allows tailscale identity to satisfy token mode auth", async () => {
     const res = await authorizeGatewayConnect({
-      auth: { mode: "token", token: "secret", allowTailscale: true },
+      auth: { mode: "token", token: "secret", allowTailscale: true, allowCloudflareAccess: false },
       connectAuth: null,
       tailscaleWhois: async () => ({ login: "peter", name: "Peter" }),
       req: {
@@ -155,7 +165,7 @@ describe("gateway auth", () => {
   it("uses proxy-aware request client IP by default for rate-limit checks", async () => {
     const limiter = createLimiterSpy();
     const res = await authorizeGatewayConnect({
-      auth: { mode: "token", token: "secret", allowTailscale: false },
+      auth: { mode: "token", token: "secret", allowTailscale: false, allowCloudflareAccess: false },
       connectAuth: { token: "wrong" },
       req: {
         socket: { remoteAddress: "127.0.0.1" },
@@ -174,7 +184,12 @@ describe("gateway auth", () => {
   it("passes custom rate-limit scope to limiter operations", async () => {
     const limiter = createLimiterSpy();
     const res = await authorizeGatewayConnect({
-      auth: { mode: "password", password: "secret", allowTailscale: false },
+      auth: {
+        mode: "password",
+        password: "secret",
+        allowTailscale: false,
+        allowCloudflareAccess: false,
+      },
       connectAuth: { password: "wrong" },
       rateLimiter: limiter,
       rateLimitScope: "custom-scope",
@@ -205,6 +220,7 @@ describe("trusted-proxy auth", () => {
       auth: options?.auth ?? {
         mode: "trusted-proxy",
         allowTailscale: false,
+        allowCloudflareAccess: false,
         trustedProxy: trustedProxyConfig,
       },
       connectAuth: null,
@@ -272,6 +288,7 @@ describe("trusted-proxy auth", () => {
       auth: {
         mode: "trusted-proxy",
         allowTailscale: false,
+        allowCloudflareAccess: false,
         trustedProxy: {
           userHeader: "x-forwarded-user",
           allowUsers: ["admin@example.com", "nick@example.com"],
@@ -291,6 +308,7 @@ describe("trusted-proxy auth", () => {
       auth: {
         mode: "trusted-proxy",
         allowTailscale: false,
+        allowCloudflareAccess: false,
         trustedProxy: {
           userHeader: "x-forwarded-user",
           allowUsers: ["admin@example.com", "nick@example.com"],
@@ -323,6 +341,7 @@ describe("trusted-proxy auth", () => {
       auth: {
         mode: "trusted-proxy",
         allowTailscale: false,
+        allowCloudflareAccess: false,
       },
       headers: {
         "x-forwarded-user": "nick@example.com",
@@ -338,6 +357,7 @@ describe("trusted-proxy auth", () => {
       auth: {
         mode: "trusted-proxy",
         allowTailscale: false,
+        allowCloudflareAccess: false,
         trustedProxy: {
           userHeader: "x-pomerium-claim-email",
           requiredHeaders: ["x-pomerium-jwt-assertion"],
@@ -361,6 +381,7 @@ describe("trusted-proxy auth", () => {
       auth: {
         mode: "trusted-proxy",
         allowTailscale: false,
+        allowCloudflareAccess: false,
         trustedProxy: {
           userHeader: "x-forwarded-user",
         },
@@ -372,5 +393,150 @@ describe("trusted-proxy auth", () => {
 
     expect(res.ok).toBe(true);
     expect(res.user).toBe("nick@example.com");
+  });
+});
+
+describe("cloudflare-access auth", () => {
+  it("allows cloudflare access identity to satisfy token mode auth", async () => {
+    const res = await authorizeGatewayConnect({
+      auth: {
+        mode: "token",
+        token: "secret",
+        allowTailscale: false,
+        allowCloudflareAccess: true,
+      },
+      connectAuth: null,
+      cloudflareAccessVerify: async () => ({ email: "user@example.com" }),
+      req: {
+        socket: { remoteAddress: "127.0.0.1" },
+        headers: {
+          host: "gateway.local",
+          "cf-access-jwt-assertion": "valid.jwt.token",
+        },
+      } as never,
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.method).toBe("cloudflare-access");
+    expect(res.user).toBe("user@example.com");
+  });
+
+  it("falls through when jwt header is missing", async () => {
+    const res = await authorizeGatewayConnect({
+      auth: {
+        mode: "token",
+        token: "secret",
+        allowTailscale: false,
+        allowCloudflareAccess: true,
+      },
+      connectAuth: { token: "secret" },
+      cloudflareAccessVerify: async () => ({ email: "user@example.com" }),
+      req: {
+        socket: { remoteAddress: "127.0.0.1" },
+        headers: { host: "localhost" },
+      } as never,
+    });
+
+    // Falls through to token auth
+    expect(res.ok).toBe(true);
+    expect(res.method).toBe("token");
+  });
+
+  it("falls through when verifier returns null", async () => {
+    const res = await authorizeGatewayConnect({
+      auth: {
+        mode: "token",
+        token: "secret",
+        allowTailscale: false,
+        allowCloudflareAccess: true,
+      },
+      connectAuth: { token: "secret" },
+      cloudflareAccessVerify: async () => null,
+      req: {
+        socket: { remoteAddress: "127.0.0.1" },
+        headers: {
+          host: "gateway.local",
+          "cf-access-jwt-assertion": "invalid.jwt.token",
+        },
+      } as never,
+    });
+
+    // Falls through to token auth
+    expect(res.ok).toBe(true);
+    expect(res.method).toBe("token");
+  });
+
+  it("skips cloudflare check when allowCloudflareAccess is false", async () => {
+    const verify = vi.fn(async () => ({ email: "user@example.com" }));
+    const res = await authorizeGatewayConnect({
+      auth: {
+        mode: "token",
+        token: "secret",
+        allowTailscale: false,
+        allowCloudflareAccess: false,
+      },
+      connectAuth: { token: "secret" },
+      cloudflareAccessVerify: verify,
+      req: {
+        socket: { remoteAddress: "127.0.0.1" },
+        headers: {
+          host: "gateway.local",
+          "cf-access-jwt-assertion": "valid.jwt.token",
+        },
+      } as never,
+    });
+
+    expect(verify).not.toHaveBeenCalled();
+    expect(res.ok).toBe(true);
+    expect(res.method).toBe("token");
+  });
+
+  it("resolveGatewayAuth computes allowCloudflareAccess correctly", () => {
+    // Active when cloudflare mode is managed
+    expect(
+      resolveGatewayAuth({
+        authConfig: {},
+        cloudflareMode: "managed",
+      }),
+    ).toMatchObject({ allowCloudflareAccess: true });
+
+    // Active when cloudflare mode is access-only
+    expect(
+      resolveGatewayAuth({
+        authConfig: {},
+        cloudflareMode: "access-only",
+      }),
+    ).toMatchObject({ allowCloudflareAccess: true });
+
+    // Inactive when cloudflare mode is off
+    expect(
+      resolveGatewayAuth({
+        authConfig: {},
+        cloudflareMode: "off",
+      }),
+    ).toMatchObject({ allowCloudflareAccess: false });
+
+    // Inactive by default (no cloudflare mode)
+    expect(
+      resolveGatewayAuth({
+        authConfig: {},
+      }),
+    ).toMatchObject({ allowCloudflareAccess: false });
+
+    // Disabled when trusted-proxy mode
+    expect(
+      resolveGatewayAuth({
+        authConfig: { mode: "trusted-proxy" },
+        cloudflareMode: "managed",
+      }),
+    ).toMatchObject({ allowCloudflareAccess: false });
+
+    // Explicit override
+    expect(
+      resolveGatewayAuth({
+        authConfig: { allowCloudflareAccess: false },
+        cloudflareMode: "managed",
+      }),
+    ).toMatchObject({ allowCloudflareAccess: false });
   });
 });
